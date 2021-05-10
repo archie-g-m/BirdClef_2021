@@ -7,13 +7,13 @@ import matplotlib.pyplot as plt
 
 def importData():
     data = np.array([], dtype=object)
-    numfiles = len(os.listdir('../birdclef-2021/train_short_audio/acafly'))
+    numfiles = len(os.listdir('birdclef-2021/train_short_audio/acafly'))
     countFiles = 0
-    for filename in os.listdir('../birdclef-2021/train_short_audio/acafly'):
+    for filename in os.listdir('birdclef-2021/train_short_audio/acafly'):
         print(filename)
         # countFiles+=1
         # print(str(round(100*countFiles/numfiles, 2))+"%", end='\r')
-        y, sr = librosa.load('../birdclef-2021/train_soundscapes/2782_SSW_20170701.ogg')
+        y, sr = librosa.load('birdclef-2021/train_short_audio/banana/XC112602.ogg')
         # print(y.shape)
         print(y.shape[0]/sr)
         # Plot the audio signal in time
