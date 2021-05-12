@@ -8,6 +8,7 @@ import pandas as pd
 from sklearn.utils import shuffle
 from tqdm import tqdm
 import tensorflow as tf
+import heapq as hq
 
 # Global Variables
 RANDOM_SEED = 1337  # Random Seed used
@@ -20,7 +21,9 @@ VALIDATION_CUTOFF = 0.8  # the percentage of examples that should be in the test
 MIN_QUALITY = 4  # Minimum Xeno-Canto rating for clips used
 INCLUDE_ZERO = False  # Should clips of unknown quality be used?
 REQUIRED_SAMPLES = 200  # Number of good samples required to attempt labeling a bird
+MAX_SIGNAL_TO_NOISE = 3  # A clips Signal to Noise ratio must be lower than this to be considered
 MAX_AUDIO_FILES = sys.maxsize  # Number of samples to include (only need to cut off for speed? we usually don't.) sys.maxsize
+MAX_CLIPS = 3  # The number of audio clips from each file
 
 # Mel Spectrogram Parameters
 SAMPLE_RATE = 32000  # All clips are 32,000
@@ -50,6 +53,12 @@ def create_spectrogram(audio_clip):
     return mel_spec
 
 
+def SNR(array):
+    m = array.mean()
+    sd = array.std()
+    return float(np.where(sd == 0, 0, m/sd))
+
+
 # Define a function that splits an audio file,
 # extracts spectrograms and saves them in a working directory
 def get_spectrograms(filepath, primary_label, output_dir):
@@ -70,10 +79,18 @@ def get_spectrograms(filepath, primary_label, output_dir):
     # Extract mel spectrograms for each audio chunk
     s_cnt = 0
     saved_samples = []
+    queue_list = []  # This is used to find the best signal to noise ratio chunks
     for chunk in sig_splits:
         mel_spec = create_spectrogram(chunk)
 
+        signal_to_noise = SNR(mel_spec)
+
+        if signal_to_noise < MAX_SIGNAL_TO_NOISE:
+            # Add to priority queue
+            hq.heappush(queue_list, (signal_to_noise, mel_spec))
+    for i in range(0, min(MAX_CLIPS, len(queue_list)) - 1):  # first x in que
         # Save as image file
+        mel_spec = hq.heappop(queue_list)[1]
         save_dir = os.path.join(output_dir, primary_label)
         if not os.path.exists(save_dir):
             os.makedirs(save_dir)
