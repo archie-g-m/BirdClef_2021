@@ -24,7 +24,7 @@ MAX_AUDIO_FILES = 1500
 # extracts spectrograms and saves them in a working directory
 def get_spectrograms(filepath, primary_label, output_dir):
     # Open the file with librosa (limited to the first 15 seconds)
-    sig, rate = librosa.load(filepath, sr=SAMPLE_RATE, offset=None, duration=15)
+    sig, rate = librosa.load(filepath, sr=SAMPLE_RATE, offset=0, duration=15)
 
     # Split signal into five second chunks
     sig_splits = []
@@ -236,7 +236,7 @@ tf.random.set_seed(RANDOM_SEED)
 # Train Keras Model
 
 model = None
-# run_keras(model)
+run_keras(model)
 
 
 # Load the best checkpoint
@@ -316,7 +316,7 @@ for chunk in sig_splits:
     # Add the confidence score as well
     data['score'].append(score)
 
-print('SOUNSCAPE ANALYSIS DONE. FOUND {} BIRDS.'.format(scnt))
+print('SOUNDSCAPE ANALYSIS DONE. FOUND {} BIRDS.'.format(scnt))
 
 # Make a new data frame
 results = pd.DataFrame(data, columns = ['row_id', 'prediction', 'score'])
