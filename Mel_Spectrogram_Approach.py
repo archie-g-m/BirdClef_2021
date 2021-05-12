@@ -63,7 +63,7 @@ def SNR(array):
 # extracts spectrograms and saves them in a working directory
 def get_spectrograms(filepath, primary_label, output_dir):
     # Open the file with librosa (limited to the first 15 seconds)
-    sig, rate = librosa.load(filepath, sr=SAMPLE_RATE, offset=0, duration=15)
+    sig, rate = librosa.load(filepath, sr=SAMPLE_RATE, offset=0)
 
     # Split signal into five second chunks
     sig_splits = []
