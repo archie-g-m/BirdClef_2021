@@ -12,7 +12,7 @@ import heapq as hq
 
 # Global Variables
 RANDOM_SEED = 1337  # Random Seed used
-GENERATE_SPECTOGRAMS = True  # True if new spectograms should be generated, false if using saved ones.
+GENERATE_SPECTOGRAMS = False  # True if new spectograms should be generated, false if using saved ones.
 TRAIN_MODEL = True  # True if a new model should be trained, false if using the saved one.
 THRESHOLD = 0.25  # threshold for confidence for nocall
 VALIDATION_CUTOFF = 0.8  # the percentage of examples that should be in the testing set. 1 - % for validation.
@@ -185,7 +185,7 @@ def generate_spectograms(train):
     return TRAIN_SPECS, VALIDATE_SPECS, LABELS
 
 
-def generate_data(SPECS, LABELS):
+def generate_data(SPECS, LABELS, metadata):
     specs, labels = [], []
     with tqdm(total=len(SPECS)) as pbar:
         for path in SPECS:
@@ -204,13 +204,27 @@ def generate_data(SPECS, LABELS):
             if not spec.max() == 1.0 or not spec.min() == 0.0:
                 continue
 
+            # Add MetaData
+            file = path.split(os.sep)[-1]
+            file = file[:-6] + ".ogg"
+            query = 'filename == "%s"' % file
+            result = metadata.query(query)
+            long = result.iloc[0]["longitude"]
+            lat = result.iloc[0]["latitude"]
+            month = int((result.iloc[0]["date"])[5:7])
+            months = np.identity(12)[month-1]
+
+            metadata_to_add = np.append(np.array([lat, long]), months)
+            metadata_plus_zeroes = np.append(metadata_to_add, np.zeros(spec.shape[1] - metadata_to_add.shape[0]))
+            spec = np.append(spec, np.expand_dims(metadata_plus_zeroes, axis=0), axis=0)
+
             # Add channel axis to 2D array
             spec = np.expand_dims(spec, -1)
 
             # Add new dimension for batch size
             spec = np.expand_dims(spec, 0)
 
-            # Add to train data
+            # Add to spectrogram data
             if len(specs) == 0:
                 specs = spec
             else:
@@ -236,7 +250,7 @@ def run_keras(train_specs, train_labels, validate_specs, validate_labels):
     model_1 = tf.keras.Sequential([
         # First conv block
         tf.keras.layers.Conv2D(16, (3, 3), activation='relu',
-                               input_shape=(SPEC_SHAPE[0], SPEC_SHAPE[1], 1)),
+                               input_shape=(SPEC_SHAPE[0] + 1, SPEC_SHAPE[1], 1)),
         tf.keras.layers.BatchNormalization(),
         tf.keras.layers.MaxPooling2D((2, 2)),
 
@@ -311,8 +325,8 @@ if __name__ == "__main__":
         LABELS = load_list("labels.txt")
 
     # Parse all samples and add spectrograms into train data, primary_labels into label data
-    train_specs, train_labels = generate_data(TRAIN_SPECS, LABELS)
-    validate_specs, validate_labels = generate_data(VALIDATE_SPECS, LABELS)
+    train_specs, train_labels = generate_data(TRAIN_SPECS, LABELS, train)
+    validate_specs, validate_labels = generate_data(VALIDATE_SPECS, LABELS, train)
 
     # Make sure your experiments are reproducible
     tf.random.set_seed(RANDOM_SEED)
