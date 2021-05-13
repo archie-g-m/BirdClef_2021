@@ -14,14 +14,15 @@ import heapq as hq
 # Global Variables
 RANDOM_SEED = 1337  # Random Seed used
 GENERATE_SPECTOGRAMS = False  # True if new spectograms should be generated, false if using saved ones.
-TRAIN_MODEL = True  # True if a new Keras model should be trained, false if using the saved one.
+TRAIN_MODEL = False  # True if a new Keras model should be trained, false if using the saved one.
 THRESHOLD = 0.25  # threshold for confidence for nocall
 VALIDATION_CUTOFF = 0.8  # the percentage of examples that should be in the testing set. 1 - % for validation.
 EVALUATE_KERAS = True  # True to evaluate the known best Keras model
 SVM = False  # True to run SVM model
-TRAIN_SVM = True  # True if training a new SVM.
-LOAD_DATA = False  # True to load saved data, false to generate new data.
+TRAIN_SVM = False  # True if training a new SVM.
+LOAD_DATA = True  # True to load saved data, false to generate new data.
 SAVE_DATA = False  # True to save computed data
+TRAINING_SAMPLE_LIMIT = 10000  # Variable for testing limited training sets
 
 # Audio Clip Parameters
 MIN_QUALITY = 4  # Minimum Xeno-Canto rating for clips used
@@ -252,6 +253,9 @@ def generate_data(SPECS, LABELS, metadata):
 
 
 def run_keras(train_specs, train_labels, validate_specs, validate_labels):
+    train_specs = train_specs[:TRAINING_SAMPLE_LIMIT, :, :, :]
+    train_labels = train_labels[:TRAINING_SAMPLE_LIMIT, :]
+
     # Build a simple model as a sequence of  convolutional blocks.
     # Each block has the sequence CONV --> RELU --> BNORM --> MAXPOOL.
     # Finally, perform global average pooling and add 2 dense layers.
@@ -411,6 +415,7 @@ def evaluate_keras():
 
     # Let's look at the first 50 entries
     results.head(50)
+    results.to_excel("results.xlsx", engine='xlsxwriter')
     return results
 
 
@@ -462,7 +467,7 @@ if __name__ == "__main__":
         TRAIN_SPECS = load_list("train_specs.txt")
         VALIDATE_SPECS = load_list("validate_specs.txt")
         LABELS = load_list("labels.txt")
-    if TRAIN_MODEL or SVM:
+    if TRAIN_MODEL or SVM or TRAIN_SVM or GENERATE_SPECTOGRAMS:
         if LOAD_DATA:
             train_specs = np.load("train_specs.npy")
             train_labels = np.load("train_labels.npy")
@@ -470,8 +475,8 @@ if __name__ == "__main__":
             validate_labels = np.load("validate_labels.npy")
         else:
             # Parse all samples and add spectrograms into train data, primary_labels into label data
-            train_specs, train_labels = generate_data(TRAIN_SPECS, LABELS)
-            validate_specs, validate_labels = generate_data(VALIDATE_SPECS, LABELS)
+            train_specs, train_labels = generate_data(TRAIN_SPECS, LABELS, train)
+            validate_specs, validate_labels = generate_data(VALIDATE_SPECS, LABELS, train)
 
         if SAVE_DATA:
             np.save("train_specs.npy", train_specs)

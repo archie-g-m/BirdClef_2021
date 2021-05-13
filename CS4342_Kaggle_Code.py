@@ -14,7 +14,7 @@ soundscapes = pd.read_csv('birdclef-2021/train_soundscape_labels.csv',)
 soundscapes.head()
 
 # Pick a file
-audio_path = 'birdclef-2021/train_short_audio/banana/XC112602.ogg'
+audio_path = 'birdclef-2021/train_short_audio/amerob/XC16916.ogg'
 
 # Load the first 15 seconds this file using librosa
 sig, rate = librosa.load(audio_path, sr=32000, offset=None, duration=15)
@@ -86,3 +86,4 @@ for second in [5, 10, 15]:
                              fmin=FMIN,
                              fmax=FMAX,
                              cmap=plt.get_cmap('viridis'))
+    plt.show()

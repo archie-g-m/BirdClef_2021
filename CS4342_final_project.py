@@ -13,7 +13,7 @@ def importData():
         print(filename)
         # countFiles+=1
         # print(str(round(100*countFiles/numfiles, 2))+"%", end='\r')
-        y, sr = librosa.load('birdclef-2021/train_short_audio/banana/XC112602.ogg')
+        y, sr = librosa.load('birdclef-2021/train_short_audio/acafly/XC319105.ogg')
         # print(y.shape)
         print(y.shape[0]/sr)
         # Plot the audio signal in time
