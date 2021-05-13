@@ -14,13 +14,13 @@ import heapq as hq
 # Global Variables
 RANDOM_SEED = 1337  # Random Seed used
 GENERATE_SPECTOGRAMS = False  # True if new spectograms should be generated, false if using saved ones.
-TRAIN_MODEL = True  # True if a new Keras model should be trained, false if using the saved one.
+TRAIN_MODEL = False  # True if a new Keras model should be trained, false if using the saved one.
 THRESHOLD = 0.25  # threshold for confidence for nocall
 VALIDATION_CUTOFF = 0.8  # the percentage of examples that should be in the testing set. 1 - % for validation.
-KERAS = True  # True to run the Keras model
-SVM = True  # True to run SVM model
+EVALUATE_KERAS = True  # True to evaluate the known best Keras model
+SVM = False  # True to run SVM model
 LOAD_DATA = False  # True to load saved data, false to generate new data.
-SAVE_DATA = True  # True to save computed data
+SAVE_DATA = False  # True to save computed data
 
 # Audio Clip Parameters
 MIN_QUALITY = 4  # Minimum Xeno-Canto rating for clips used
@@ -320,13 +320,7 @@ def run_keras(train_specs, train_labels, validate_specs, validate_labels):
                 epochs=25)
 
 
-def evaluate_keras(train_specs, train_labels,  validate_specs, validate_labels):
-    # Make sure your experiments are reproducible
-    tf.random.set_seed(RANDOM_SEED)
-
-    # Train Keras Model
-    if TRAIN_MODEL:
-        run_keras(train_specs, train_labels, validate_specs, validate_labels)
+def evaluate_keras():
 
     # Load the best checkpoint
     model = tf.keras.models.load_model('best_model.h5')
@@ -362,6 +356,20 @@ def evaluate_keras(train_specs, train_labels,  validate_specs, validate_labels):
 
         # Get the spectrogram
         mel_spec = create_spectrogram(chunk)
+
+        site = soundscape_path[-16:-13]
+        if site == "SSW":
+            long = -76.45
+            lat = 42.47
+        elif site == "COR":
+            long = -84.51
+            lat = 10.12
+        month = int(soundscape_path[-8:-6])
+        months = np.identity(12)[month - 1]
+
+        metadata_to_add = np.append(np.array([lat, long]), months)
+        metadata_plus_zeroes = np.append(metadata_to_add, np.zeros(mel_spec.shape[1] - metadata_to_add.shape[0]))
+        mel_spec = np.append(mel_spec, np.expand_dims(metadata_plus_zeroes, axis=0), axis=0)
 
         # Add channel axis to 2D array
         mel_spec = np.expand_dims(mel_spec, -1)
@@ -402,6 +410,7 @@ def evaluate_keras(train_specs, train_labels,  validate_specs, validate_labels):
 
     # Let's look at the first 50 entries
     results.head(50)
+    return results
 
 
 def evaluate_svm(train_specs, train_labels,  validate_specs, validate_labels):
@@ -454,25 +463,32 @@ if __name__ == "__main__":
         TRAIN_SPECS = load_list("train_specs.txt")
         VALIDATE_SPECS = load_list("validate_specs.txt")
         LABELS = load_list("labels.txt")
+    if TRAIN_MODEL or SVM:
+        if LOAD_DATA:
+            train_specs = np.load("train_specs.npy")
+            train_labels = np.load("train_labels.npy")
+            validate_specs = np.load("validate_specs.npy")
+            validate_labels = np.load("validate_labels.npy")
+        else:
+            # Parse all samples and add spectrograms into train data, primary_labels into label data
+            train_specs, train_labels = generate_data(TRAIN_SPECS, LABELS)
+            validate_specs, validate_labels = generate_data(VALIDATE_SPECS, LABELS)
 
-    if LOAD_DATA:
-        train_specs = np.load("train_specs.npy")
-        train_labels = np.load("train_labels.npy")
-        validate_specs = np.load("validate_specs.npy")
-        validate_labels = np.load("validate_labels.npy")
-    else:
-        # Parse all samples and add spectrograms into train data, primary_labels into label data
-        train_specs, train_labels = generate_data(TRAIN_SPECS, LABELS)
-        validate_specs, validate_labels = generate_data(VALIDATE_SPECS, LABELS)
+        if SAVE_DATA:
+            np.save("train_specs.npy", train_specs)
+            np.save("train_labels.npy", train_labels)
+            np.save("validate_specs.npy", validate_specs)
+            np.save("validate_labels.npy", validate_labels)
 
-    if SAVE_DATA:
-        np.save("train_specs.npy", train_specs)
-        np.save("train_labels.npy", train_labels)
-        np.save("validate_specs.npy", validate_specs)
-        np.save("validate_labels.npy", validate_labels)
+    # Make sure your experiments are reproducible
+    tf.random.set_seed(RANDOM_SEED)
 
-    if KERAS:
-        evaluate_keras(train_specs, train_labels,  validate_specs, validate_labels)
+    # Train Keras Model
+    if TRAIN_MODEL:
+        run_keras(train_specs, train_labels, validate_specs, validate_labels)
+
+    if EVALUATE_KERAS:
+        results = evaluate_keras()
 
     if SVM:
         evaluate_svm(train_specs, train_labels,  validate_specs, validate_labels)
