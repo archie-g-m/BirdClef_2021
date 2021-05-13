@@ -5,7 +5,7 @@ import numpy as np
 import os
 from PIL import Image
 import pandas as pd
-from sklearn import svm
+from sklearn import svm, neighbors, linear_model
 from sklearn.utils import shuffle
 from tqdm import tqdm
 import tensorflow as tf
@@ -14,12 +14,23 @@ import heapq as hq
 # Global Variables
 RANDOM_SEED = 1337  # Random Seed used
 GENERATE_SPECTOGRAMS = False  # True if new spectograms should be generated, false if using saved ones.
-TRAIN_MODEL = False  # True if a new Keras model should be trained, false if using the saved one.
 THRESHOLD = 0.25  # threshold for confidence for nocall
 VALIDATION_CUTOFF = 0.8  # the percentage of examples that should be in the testing set. 1 - % for validation.
-EVALUATE_KERAS = True  # True to evaluate the known best Keras model
+NJOBS = -1
+
+# What to Run
+TRAIN_MODEL = False  # True if a new Keras model should be trained, false if using the saved one.
+EVALUATE_KERAS = False  # True to evaluate the known best Keras model
+
 SVM = False  # True to run SVM model
-TRAIN_SVM = False  # True if training a new SVM.
+TRAIN_SVM = False  # True if training a new SVM. Only has an effect if SVM is True.
+
+KNN = False  # True if training K Neighbors Classification
+TRAIN_KNN = False  # True if training a new KNN Only has an effect if KNN is True.
+
+LOG = True  # True if training logistic regression classification
+TRAIN_LOG = True  # True if training a new LOG Only has an effect if LOG is True.
+
 LOAD_DATA = True  # True to load saved data, false to generate new data.
 SAVE_DATA = False  # True to save computed data
 TRAINING_SAMPLE_LIMIT = 10000  # Variable for testing limited training sets
@@ -430,30 +441,141 @@ def evaluate_svm(train_specs, train_labels,  validate_specs, validate_labels):
     cs = [0.01, 0.1, 1, 1e15]
     gammas = [0.01, 0.1, 1]
     best_acc = 0
+    csv = "kernel,c,gamma,accuracy\n"
 
-    # hyperparameter tuning on the SVM
-    for kernel in kernels:
-        for c in cs:
-            for gamma in gammas:
-                thisSVC = svm.SVC(kernel=kernel, C=c, gamma=gamma)
-                thisSVC.fit(train_specs, np.argmax(train_labels, axis=1))
-                predictions = thisSVC.predict(validate_specs)
+    if TRAIN_SVM:
+        # hyperparameter tuning on the SVM
+        for kernel in kernels:
+            for c in cs:
+                for gamma in gammas:
+                    thisSVC = svm.SVC(kernel=kernel, C=c, gamma=gamma)
+                    thisSVC.fit(train_specs, np.argmax(train_labels, axis=1))
+                    predictions = thisSVC.predict(validate_specs)
 
-                # for this to work, need to un-onehot predictions and labels into class numbers
-                acc = predictions - np.argmax(validate_labels, axis=1)
-                acc[acc != 0] = -1
-                acc[acc == 0] = 1
-                acc[acc == -1] = 0
-                # Now every correct guess is a 1
-                sum = acc.sum()
-                # percent correct is just this sum over the size of acc
-                accuracy = sum / acc.shape[0]
-                if accuracy > best_acc:
-                    best_acc = accuracy
-                    joblib.save((thisSVC, accuracy, kernel, c, gamma), "bestSVCSoFar.pkl")
+                    # for this to work, need to un-onehot predictions and labels into class numbers
+                    acc = predictions - np.argmax(validate_labels, axis=1)
+                    acc[acc != 0] = -1
+                    acc[acc == 0] = 1
+                    acc[acc == -1] = 0
+                    # Now every correct guess is a 1
+                    sum = acc.sum()
+                    # percent correct is just this sum over the size of acc
+                    accuracy = sum / acc.shape[0]
+                    print(f"SVM Ker: {kernel}, C: {c}, gamma: {gamma}, Accuracy: {accuracy}")
+                    csv += f"{kernel},{c},{gamma},{accuracy}\n"
+                    if accuracy > best_acc:
+                        best_acc = accuracy
+                        joblib.dump((thisSVC, accuracy, kernel, c, gamma), "bestSVCSoFar.pkl")
 
     # print best results
     SVC, acc, kernel, c, gamma = joblib.load("bestSVCSoFar.pkl")
+    with open("SVM_Tuning.csv", 'w') as filehandle:
+        filehandle.write(csv)
+    print(f"Best SVM Result: Accuracy {acc} with kernel {kernel}, C {c}, gamma {gamma}")
+
+
+def evaluate_KNN(train_specs, train_labels,  validate_specs, validate_labels):
+    # prepare data: one-hot training and validation labels and flatten images.
+    train_specs = train_specs.reshape((train_specs.shape[0], train_specs.shape[1] * train_specs.shape[2]))
+    train_specs = train_specs[:, :-(SPEC_SHAPE[1] - 14)]
+    validate_specs = validate_specs.reshape((validate_specs.shape[0], validate_specs.shape[1] * validate_specs.shape[2]))
+    validate_specs = validate_specs[:, :-(SPEC_SHAPE[1] - 14)]
+
+    num_neighbors = [2, 5, 10]
+    weight_funcs = ["uniform", "distance"]
+    algorithms = ["ball_tree", "kd_tree"]
+    leaf_sizes = [10, 30, 50]
+    p_vals = [1, 2, 3]
+
+    best_acc = 0
+    csv = "neighbors,function,algorithm,leaf_size,p,accuracy\n"
+
+    if TRAIN_KNN:
+        for n in num_neighbors:
+            for func in weight_funcs:
+                for algorithm in algorithms:
+                    for leaf in leaf_sizes:
+                        for p in p_vals:
+                            model = neighbors.KNeighborsClassifier(n_neighbors=n,
+                                                                   weights=func,
+                                                                   algorithm=algorithm,
+                                                                   leaf_size=leaf,
+                                                                   p=p,
+                                                                   n_jobs=NJOBS)
+                            KNN = model.fit(train_specs, np.argmax(train_labels, axis=1))
+                            predictions = KNN.predict(validate_specs)
+                            # check accuracy
+                            # for this to work, need to un-onehot predictions and labels into class numbers
+                            acc = predictions - np.argmax(validate_labels, axis=1)
+                            acc[acc != 0] = -1
+                            acc[acc == 0] = 1
+                            acc[acc == -1] = 0
+                            # Now every correct guess is a 1
+                            sum = acc.sum()
+                            # percent correct is just this sum over the size of acc
+                            accuracy = sum / acc.shape[0]
+                            print(f"KNN Neighbors: {n}, func: {func}, algo: {algorithm}, leaf: {leaf}, p: {p}, Accuracy: {accuracy}")
+                            csv += f"{n},{func},{algorithm},{leaf},{p},{accuracy}\n"
+                            if accuracy > best_acc:
+                                best_acc = accuracy
+                                joblib.dump((KNN, accuracy, n, func, algorithm, leaf, p), "bestKNNSoFar.pkl")
+
+    # results
+    thisKNN, accuracy, n, func, algorithm, leaf, p = joblib.load("bestKNNSoFar.pkl")
+    with open("KNN_Tuning.csv", 'w') as filehandle:
+        filehandle.write(csv)
+    print(f"Best KNN Result: Accuracy {accuracy} with Neighbors: {n}, func: {func}, algo: {algorithm}, leaf: {leaf}, p: {p}")
+
+
+def evaluate_LOG(train_specs, train_labels,  validate_specs, validate_labels):
+    # prepare data: one-hot training and validation labels and flatten images.
+    train_specs = train_specs.reshape((train_specs.shape[0], train_specs.shape[1] * train_specs.shape[2]))
+    train_specs = train_specs[:, :-(SPEC_SHAPE[1] - 14)]
+    validate_specs = validate_specs.reshape(
+        (validate_specs.shape[0], validate_specs.shape[1] * validate_specs.shape[2]))
+    validate_specs = validate_specs[:, :-(SPEC_SHAPE[1] - 14)]
+
+    cs = [1, 2, 5]
+    intercepts = [True, False]
+    max_itrs = [50, 100, 150]
+
+    best_acc = 0
+    csv = "c,intercept,max_itr,accuracy\n"
+
+    if TRAIN_LOG:
+        for c in cs:
+            for intercept in intercepts:
+                for itr in max_itrs:
+                    model = linear_model.LogisticRegression(C=c,
+                                                            fit_intercept=intercept,
+                                                            solver='saga',
+                                                            max_iter=itr,
+                                                            n_jobs=NJOBS)
+                    thisLOG = model.fit(train_specs, np.argmax(train_labels, axis=1))
+                    predictions = thisLOG.predict(validate_specs)
+                    # check accuracy
+                    # for this to work, need to un-onehot predictions and labels into class numbers
+                    acc = predictions - np.argmax(validate_labels, axis=1)
+                    acc[acc != 0] = -1
+                    acc[acc == 0] = 1
+                    acc[acc == -1] = 0
+                    # Now every correct guess is a 1
+                    sum = acc.sum()
+                    # percent correct is just this sum over the size of acc
+                    accuracy = sum / acc.shape[0]
+                    print(
+                        f"C: {c}, Intercept: {intercept}, Max_Itr: {itr}: Accuracy: {accuracy}")
+                    csv += f"{c},{intercept},{itr},{accuracy}\n"
+                    if accuracy > best_acc:
+                        best_acc = accuracy
+                        joblib.dump((thisLOG, accuracy, c, intercept, itr), "bestLOGSoFar.pkl")
+
+    # results
+    thisLOG, accuracy, c, intercept, itr = joblib.load("bestLOGSoFar.pkl")
+    with open("LOG_Tuning.csv", 'w') as filehandle:
+        filehandle.write(csv)
+    print(f"Best KNN Result: Accuracy: {accuracy}, C: {c}, Intercept: {intercept}, Max_Itr: {itr}")
+
 
 if __name__ == "__main__":
     # Load metadata file
@@ -467,7 +589,7 @@ if __name__ == "__main__":
         TRAIN_SPECS = load_list("train_specs.txt")
         VALIDATE_SPECS = load_list("validate_specs.txt")
         LABELS = load_list("labels.txt")
-    if TRAIN_MODEL or SVM or TRAIN_SVM or GENERATE_SPECTOGRAMS:
+    if TRAIN_MODEL or SVM or KNN or LOG:
         if LOAD_DATA:
             train_specs = np.load("train_specs.npy")
             train_labels = np.load("train_labels.npy")
@@ -496,3 +618,9 @@ if __name__ == "__main__":
 
     if SVM:
         evaluate_svm(train_specs, train_labels,  validate_specs, validate_labels)
+
+    if KNN:
+        evaluate_KNN(train_specs, train_labels,  validate_specs, validate_labels)
+
+    if LOG:
+        evaluate_LOG(train_specs, train_labels,  validate_specs, validate_labels)
