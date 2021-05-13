@@ -1,5 +1,6 @@
 import sys
 
+import joblib
 import librosa
 import numpy as np
 import os
@@ -17,10 +18,11 @@ GENERATE_SPECTOGRAMS = False  # True if new spectograms should be generated, fal
 TRAIN_MODEL = True  # True if a new Keras model should be trained, false if using the saved one.
 THRESHOLD = 0.25  # threshold for confidence for nocall
 VALIDATION_CUTOFF = 0.8  # the percentage of examples that should be in the testing set. 1 - % for validation.
-KERAS = True  # True to run the Keras model
+KERAS = False  # True to run the Keras model
 SVM = True  # True to run SVM model
-LOAD_DATA = False  # True to load saved data, false to generate new data.
-SAVE_DATA = True  # True to save computed data
+TRAIN_SVM = True  # True if training a new SVM.
+LOAD_DATA = True  # True to load saved data, false to generate new data.
+SAVE_DATA = False  # True to save computed data
 
 # Audio Clip Parameters
 MIN_QUALITY = 4  # Minimum Xeno-Canto rating for clips used
@@ -415,20 +417,17 @@ def evaluate_svm(train_specs, train_labels,  validate_specs, validate_labels):
     cs = [0.01, 0.1, 1, 1e15]
     gammas = [0.01, 0.1, 1]
     best_acc = 0
-    best_kernel = ""
-    best_c = 0
-    best_gamma = 0
 
     # hyperparameter tuning on the SVM
     for kernel in kernels:
         for c in cs:
             for gamma in gammas:
                 thisSVC = svm.SVC(kernel=kernel, C=c, gamma=gamma)
-                thisSVC.fit(train_specs, train_labels)
+                thisSVC.fit(train_specs, np.argmax(train_labels, axis=1))
                 predictions = thisSVC.predict(validate_specs)
 
                 # for this to work, need to un-onehot predictions and labels into class numbers
-                acc = predictions - validate_labels
+                acc = predictions - np.argmax(validate_labels, axis=1)
                 acc[acc != 0] = -1
                 acc[acc == 0] = 1
                 acc[acc == -1] = 0
@@ -438,9 +437,10 @@ def evaluate_svm(train_specs, train_labels,  validate_specs, validate_labels):
                 accuracy = sum / acc.shape[0]
                 if accuracy > best_acc:
                     best_acc = accuracy
-                    best_kernel, best_c, best_gamma = kernel, c, gamma
+                    joblib.save((thisSVC, accuracy, kernel, c, gamma), "bestSVCSoFar.pkl")
 
     # print best results
+    SVC, acc, kernel, c, gamma = joblib.load("bestSVCSoFar.pkl")
 
 if __name__ == "__main__":
     # Load metadata file
