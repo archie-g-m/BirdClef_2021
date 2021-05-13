@@ -447,7 +447,7 @@ def evaluate_svm(train_specs, train_labels,  validate_specs, validate_labels):
                     best_acc = accuracy
                     joblib.save((thisSVC, accuracy, kernel, c, gamma), "bestSVCSoFar.pkl")
 
-    # print best results
+    # TODO print best results
     SVC, acc, kernel, c, gamma = joblib.load("bestSVCSoFar.pkl")
 
 if __name__ == "__main__":
@@ -470,8 +470,8 @@ if __name__ == "__main__":
             validate_labels = np.load("validate_labels.npy")
         else:
             # Parse all samples and add spectrograms into train data, primary_labels into label data
-            train_specs, train_labels = generate_data(TRAIN_SPECS, LABELS)
-            validate_specs, validate_labels = generate_data(VALIDATE_SPECS, LABELS)
+            train_specs, train_labels = generate_data(TRAIN_SPECS, LABELS, train)
+            validate_specs, validate_labels = generate_data(VALIDATE_SPECS, LABELS, train)
 
         if SAVE_DATA:
             np.save("train_specs.npy", train_specs)
