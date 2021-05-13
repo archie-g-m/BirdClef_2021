@@ -5,6 +5,7 @@ import numpy as np
 import os
 from PIL import Image
 import pandas as pd
+from sklearn import svm
 from sklearn.utils import shuffle
 from tqdm import tqdm
 import tensorflow as tf
@@ -13,9 +14,13 @@ import heapq as hq
 # Global Variables
 RANDOM_SEED = 1337  # Random Seed used
 GENERATE_SPECTOGRAMS = False  # True if new spectograms should be generated, false if using saved ones.
-TRAIN_MODEL = True  # True if a new model should be trained, false if using the saved one.
+TRAIN_MODEL = True  # True if a new Keras model should be trained, false if using the saved one.
 THRESHOLD = 0.25  # threshold for confidence for nocall
 VALIDATION_CUTOFF = 0.8  # the percentage of examples that should be in the testing set. 1 - % for validation.
+KERAS = True  # True to run the Keras model
+SVM = True  # True to run SVM model
+LOAD_DATA = False  # True to load saved data, false to generate new data.
+SAVE_DATA = True  # True to save computed data
 
 # Audio Clip Parameters
 MIN_QUALITY = 4  # Minimum Xeno-Canto rating for clips used
@@ -232,7 +237,11 @@ def generate_data(SPECS, LABELS, metadata):
 
             # Add to label data
             target = np.zeros((len(LABELS)), dtype='float32')
-            bird = path.split(os.sep)[-2]
+            if os.name == 'nt':
+                bird = path.split(os.sep)[-2]
+                bird = bird.split('/')[-1]
+            elif os.name == 'posix':
+                bird = path.split(os.sep)[-2]
             target[LABELS.index(bird)] = 1.0
             if len(labels) == 0:
                 labels = target
@@ -311,23 +320,7 @@ def run_keras(train_specs, train_labels, validate_specs, validate_labels):
                 epochs=25)
 
 
-if __name__ == "__main__":
-    # Load metadata file
-    train = pd.read_csv('birdclef-2021/train_metadata.csv',)
-
-    if GENERATE_SPECTOGRAMS:
-        # generate and store data
-        TRAIN_SPECS, VALIDATE_SPECS, LABELS = generate_spectograms(train)
-    else:
-        # load previous data
-        TRAIN_SPECS = load_list("train_specs.txt")
-        VALIDATE_SPECS = load_list("validate_specs.txt")
-        LABELS = load_list("labels.txt")
-
-    # Parse all samples and add spectrograms into train data, primary_labels into label data
-    train_specs, train_labels = generate_data(TRAIN_SPECS, LABELS, train)
-    validate_specs, validate_labels = generate_data(VALIDATE_SPECS, LABELS, train)
-
+def evaluate_keras(train_specs, train_labels,  validate_specs, validate_labels):
     # Make sure your experiments are reproducible
     tf.random.set_seed(RANDOM_SEED)
 
@@ -409,3 +402,77 @@ if __name__ == "__main__":
 
     # Let's look at the first 50 entries
     results.head(50)
+
+
+def evaluate_svm(train_specs, train_labels,  validate_specs, validate_labels):
+    # prepare data: one-hot training and validation labels and flatten images.
+    train_specs = train_specs.reshape((train_specs.shape[0], train_specs.shape[1] * train_specs.shape[2]))
+    train_specs = train_specs[:, :-(SPEC_SHAPE[1]-14)]
+    validate_specs = validate_specs.reshape((validate_specs.shape[0], validate_specs.shape[1] * validate_specs.shape[2]))
+    validate_specs = validate_specs[:, :-(SPEC_SHAPE[1]-14)]
+
+    kernels = ["linear", "rbf"]
+    cs = [0.01, 0.1, 1, 1e15]
+    gammas = [0.01, 0.1, 1]
+    best_acc = 0
+    best_kernel = ""
+    best_c = 0
+    best_gamma = 0
+
+    # hyperparameter tuning on the SVM
+    for kernel in kernels:
+        for c in cs:
+            for gamma in gammas:
+                thisSVC = svm.SVC(kernel=kernel, C=c, gamma=gamma)
+                thisSVC.fit(train_specs, train_labels)
+                predictions = thisSVC.predict(validate_specs)
+
+                # for this to work, need to un-onehot predictions and labels into class numbers
+                acc = predictions - validate_labels
+                acc[acc != 0] = -1
+                acc[acc == 0] = 1
+                acc[acc == -1] = 0
+                # Now every correct guess is a 1
+                sum = acc.sum()
+                # percent correct is just this sum over the size of acc
+                accuracy = sum / acc.shape[0]
+                if accuracy > best_acc:
+                    best_acc = accuracy
+                    best_kernel, best_c, best_gamma = kernel, c, gamma
+
+    # print best results
+
+if __name__ == "__main__":
+    # Load metadata file
+    train = pd.read_csv('birdclef-2021/train_metadata.csv',)
+
+    if GENERATE_SPECTOGRAMS:
+        # generate and store data
+        TRAIN_SPECS, VALIDATE_SPECS, LABELS = generate_spectograms(train)
+    else:
+        # load previous data
+        TRAIN_SPECS = load_list("train_specs.txt")
+        VALIDATE_SPECS = load_list("validate_specs.txt")
+        LABELS = load_list("labels.txt")
+
+    if LOAD_DATA:
+        train_specs = np.load("train_specs.npy")
+        train_labels = np.load("train_labels.npy")
+        validate_specs = np.load("validate_specs.npy")
+        validate_labels = np.load("validate_labels.npy")
+    else:
+        # Parse all samples and add spectrograms into train data, primary_labels into label data
+        train_specs, train_labels = generate_data(TRAIN_SPECS, LABELS)
+        validate_specs, validate_labels = generate_data(VALIDATE_SPECS, LABELS)
+
+    if SAVE_DATA:
+        np.save("train_specs.npy", train_specs)
+        np.save("train_labels.npy", train_labels)
+        np.save("validate_specs.npy", validate_specs)
+        np.save("validate_labels.npy", validate_labels)
+
+    if KERAS:
+        evaluate_keras(train_specs, train_labels,  validate_specs, validate_labels)
+
+    if SVM:
+        evaluate_svm(train_specs, train_labels,  validate_specs, validate_labels)
